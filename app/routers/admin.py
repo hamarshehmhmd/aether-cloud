@@ -24,6 +24,7 @@ async def create_new_license(
     license_, plain_key = await create_license(
         db,
         customer_email=body.customer_email,
+        github_account_id=body.github_account_id,
         expires_at=body.expires_at,
         notes=body.notes,
     )
@@ -33,6 +34,7 @@ async def create_new_license(
         status=license_.status,
         expires_at=license_.expires_at,
         created_at=license_.created_at,
+        github_account_id=license_.github_account_id,
         license_key=plain_key,
     )
 

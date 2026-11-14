@@ -8,7 +8,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, String
+from sqlalchemy import BigInteger, DateTime, Enum, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -33,6 +33,12 @@ class License(Base, UUIDMixin, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
     notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
+    # GitHub account (org or user) this license may register installations for.
+    # Numeric ID, not login: logins can be renamed and then claimed by someone else.
+    # Nullable only for licenses created before this column existed; those cannot
+    # register installations until an admin binds them to an account.
+    github_account_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     # Relationships
     installations: Mapped[list["InstallationRegistry"]] = relationship(

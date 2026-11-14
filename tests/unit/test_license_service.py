@@ -45,7 +45,7 @@ class TestCreateLicense:
         from app.services.license_service import create_license
 
         db = _mock_db()
-        license_, plain_key = await create_license(db, "user@example.com")
+        license_, plain_key = await create_license(db, "user@example.com", github_account_id=1111)
 
         assert plain_key.startswith("aeth_")
         assert db.add.called
@@ -57,7 +57,7 @@ class TestCreateLicense:
         from app.utils.security import verify_key
 
         db = _mock_db()
-        license_, plain_key = await create_license(db, "user@example.com")
+        license_, plain_key = await create_license(db, "user@example.com", github_account_id=1111)
 
         # The License object was created with hash_key(plain_key)
         # We can verify indirectly: re-hash should match what was passed to License()

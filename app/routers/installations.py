@@ -1,11 +1,13 @@
 """Installation registration — self-hosters register their relay endpoint here."""
 
+import httpx
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
+from app.github.app import get_installation_account_id
 from app.models.installation_registry import InstallationRegistry
 from app.schemas.installation import RegisterRequest, RegisterResponse
 from app.services.license_service import validate_license
@@ -38,6 +40,38 @@ async def register_installation(
         license_ = await validate_license(db, key)
     except ValueError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    # Ownership check: the installation must belong to the GitHub account this
+    # license was issued for. Without this, any license holder could register
+    # another org's installation_id and then mint tokens for its repos.
+    if license_.github_account_id is None:
+        log.warning("register_denied_unbound_license", license_id=str(license_.id))
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="License is not bound to a GitHub account. Contact support.",
+        )
+
+    try:
+        account_id = await get_installation_account_id(body.installation_id)
+    except httpx.HTTPError as exc:
+        log.error("github_installation_lookup_failed", error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not verify installation with GitHub. Try again later.",
+        )
+
+    # Same response for "does not exist" and "belongs to someone else" so the
+    # endpoint cannot be used to probe which installation IDs exist.
+    if account_id is None or account_id != license_.github_account_id:
+        log.warning(
+            "register_denied_installation_not_owned",
+            installation_id=body.installation_id,
+            license_id=str(license_.id),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Installation does not belong to the GitHub account on this license.",
+        )
 
     relay_url = str(body.relay_url)
 

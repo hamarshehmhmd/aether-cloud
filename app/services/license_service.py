@@ -13,6 +13,7 @@ log = structlog.get_logger(__name__)
 async def create_license(
     db: AsyncSession,
     customer_email: str,
+    github_account_id: int,
     expires_at=None,
     notes: str | None = None,
 ) -> tuple[License, str]:
@@ -26,6 +27,7 @@ async def create_license(
     license_ = License(
         key_hash=key_hash,
         customer_email=customer_email,
+        github_account_id=github_account_id,
         status=LicenseStatus.active,
         expires_at=expires_at,
         notes=notes,

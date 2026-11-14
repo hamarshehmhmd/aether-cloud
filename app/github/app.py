@@ -36,6 +36,24 @@ def _app_headers() -> dict[str, str]:
     }
 
 
+async def get_installation_account_id(installation_id: int) -> int | None:
+    """Return the GitHub account ID (org or user) that owns an installation.
+
+    Authenticates as the App itself (JWT), so the answer comes from GitHub,
+    not from the caller. Returns None if the installation does not exist
+    for this App. Raises httpx.HTTPError on any other failure.
+    """
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            f"{GITHUB_API}/app/installations/{installation_id}",
+            headers=_app_headers(),
+        )
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()["account"]["id"]
+
+
 async def mint_installation_token(installation_id: int) -> dict[str, str]:
     """Mint a GitHub installation access token.
 
