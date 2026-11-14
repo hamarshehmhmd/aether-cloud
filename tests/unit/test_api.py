@@ -21,6 +21,7 @@ def _active_license(plain_key: str, email: str = "user@example.com") -> License:
     lic.status = LicenseStatus.active
     lic.expires_at = None
     lic.notes = None
+    lic.github_account_id = 1111
     lic.created_at = datetime.now(timezone.utc)
     return lic
 
@@ -50,12 +51,12 @@ class TestAdminLicenses:
         lic = _active_license(plain_key)
 
         with __import__("unittest.mock", fromlist=["patch"]).patch(
-            "app.services.license_service.create_license",
+            "app.routers.admin.create_license",
             new=AsyncMock(return_value=(lic, plain_key)),
         ):
             resp = await client.post(
                 "/admin/licenses",
-                json={"customer_email": "user@example.com"},
+                json={"customer_email": "user@example.com", "github_account_id": 1111},
                 headers=ADMIN_HEADERS,
             )
 
@@ -85,7 +86,7 @@ class TestAdminLicenses:
     @pytest.mark.asyncio
     async def test_list_licenses_returns_empty(self, client, mock_db):
         with __import__("unittest.mock", fromlist=["patch"]).patch(
-            "app.services.license_service.list_licenses",
+            "app.routers.admin.list_licenses",
             new=AsyncMock(return_value=[]),
         ):
             resp = await client.get("/admin/licenses", headers=ADMIN_HEADERS)
@@ -96,7 +97,7 @@ class TestAdminLicenses:
     @pytest.mark.asyncio
     async def test_revoke_unknown_license_returns_404(self, client, mock_db):
         with __import__("unittest.mock", fromlist=["patch"]).patch(
-            "app.services.license_service.revoke_license",
+            "app.routers.admin.revoke_license",
             new=AsyncMock(side_effect=ValueError("not found")),
         ):
             resp = await client.delete(
@@ -156,7 +157,7 @@ class TestLicenseValidate:
 
 class TestTokenProxy:
     @pytest.mark.asyncio
-    async def test_valid_request_returns_token(self, client):
+    async def test_valid_request_returns_token(self, client, mock_db):
         from app.models.installation_registry import InstallationRegistry
 
         plain_key = generate_license_key()
@@ -164,35 +165,23 @@ class TestTokenProxy:
         reg = MagicMock(spec=InstallationRegistry)
         reg.installation_id = 12345
 
-        execute_result = MagicMock()
-        execute_result.scalar_one_or_none.return_value = reg
+        # mock_db is the session the app receives (see conftest)
+        mock_db.execute.return_value.scalar_one_or_none.return_value = reg
 
         with __import__("unittest.mock", fromlist=["patch"]).patch(
             "app.routers.token.validate_license",
             new=AsyncMock(return_value=lic),
         ), __import__("unittest.mock", fromlist=["patch"]).patch(
-            "app.services.token_service.get_cached_token",
+            "app.routers.token.get_cached_token",
             new=AsyncMock(return_value={"token": "ghs_test_token", "expires_at": "2026-08-08T00:00:00Z"}),
         ), __import__("unittest.mock", fromlist=["patch"]).patch(
             "app.routers.token.check_rate_limit",
             new=AsyncMock(return_value=True),
         ):
-            # Need DB to return the registry
-            from tests.conftest import make_mock_db
-            from app.dependencies import get_db
-
-            async def _db_with_registry():
-                db = make_mock_db()
-                db.execute.return_value.scalar_one_or_none.return_value = reg
-                yield db
-
-            client.app.dependency_overrides[get_db] = _db_with_registry
-
             resp = await client.get(
                 "/github/token?installation_id=12345",
                 headers={"Authorization": f"Bearer {plain_key}"},
             )
-            client.app.dependency_overrides.pop(get_db, None)
 
         assert resp.status_code == 200
         assert resp.json()["token"] == "ghs_test_token"

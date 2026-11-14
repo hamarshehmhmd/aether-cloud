@@ -30,6 +30,10 @@ def make_mock_db():
     db.flush = AsyncMock()
     db.commit = AsyncMock()
     db.rollback = AsyncMock()
+    # execute() is awaited, but the Result it returns is synchronous in SQLAlchemy.
+    # Left as an AsyncMock child, result.scalar_one_or_none() would return a
+    # (truthy) coroutine instead of a value.
+    db.execute.return_value = MagicMock()
     return db
 
 
