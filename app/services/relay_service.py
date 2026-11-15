@@ -5,6 +5,8 @@ import asyncio
 import httpx
 import structlog
 
+from app.utils.url_safety import UnsafeURLError, resolve_relay_target
+
 log = structlog.get_logger(__name__)
 
 _RELAY_TIMEOUT = 10.0     # seconds per attempt
@@ -29,7 +31,21 @@ async def forward_event(
     Retries up to 2 times on network/5xx errors.
     Returns True if delivered, False if all attempts failed.
     """
+    # SSRF guard: resolve once, refuse non-public addresses, and pin every attempt
+    # to the vetted IP so DNS cannot be switched to an internal address mid-flight.
+    try:
+        target = await resolve_relay_target(relay_url)
+    except UnsafeURLError as exc:
+        log.error(
+            "relay_blocked_unsafe_url",
+            installation_id=installation_id,
+            relay_url=relay_url,
+            reason=str(exc),
+        )
+        return False
+
     headers = {
+        "Host": target.host_header,
         "X-GitHub-Event": event,
         "X-Aether-Relay-Secret": relay_secret,
         "Content-Type": "application/json",
@@ -42,8 +58,17 @@ async def forward_event(
         if delay:
             await asyncio.sleep(delay)
         try:
-            async with httpx.AsyncClient(timeout=_RELAY_TIMEOUT) as client:
-                resp = await client.post(relay_url, json=payload, headers=headers)
+            # follow_redirects=False: a redirect could point at an internal address.
+            async with httpx.AsyncClient(
+                timeout=_RELAY_TIMEOUT, follow_redirects=False
+            ) as client:
+                resp = await client.post(
+                    target.url,
+                    json=payload,
+                    headers=headers,
+                    # TLS SNI + certificate check against the real hostname, not the IP.
+                    extensions={"sni_hostname": target.sni_hostname},
+                )
                 if resp.status_code < 500:
                     log.info(
                         "relay_delivered",

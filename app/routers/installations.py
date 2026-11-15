@@ -12,6 +12,7 @@ from app.models.installation_registry import InstallationRegistry
 from app.schemas.installation import RegisterRequest, RegisterResponse
 from app.services.license_service import validate_license
 from app.utils.security import generate_relay_secret
+from app.utils.url_safety import UnsafeURLError, check_relay_url
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/installations", tags=["installations"])
@@ -40,6 +41,15 @@ async def register_installation(
         license_ = await validate_license(db, key)
     except ValueError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    # SSRF check: this service will POST webhook payloads to relay_url, so it must
+    # be a public https endpoint. Re-checked at send time (DNS can change).
+    relay_url = str(body.relay_url)
+    try:
+        await check_relay_url(relay_url)
+    except UnsafeURLError as exc:
+        log.warning("register_denied_unsafe_relay_url", reason=str(exc))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
 
     # Ownership check: the installation must belong to the GitHub account this
     # license was issued for. Without this, any license holder could register
@@ -72,8 +82,6 @@ async def register_installation(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Installation does not belong to the GitHub account on this license.",
         )
-
-    relay_url = str(body.relay_url)
 
     # Upsert: update if already registered under this license, else create
     result = await db.execute(

@@ -36,13 +36,17 @@ def fresh_db(mock_db):
     return mock_db
 
 
-async def _register(client, lic, lookup):
+async def _register(client, lic, lookup, url_check=None, body=BODY):
+    # The relay URL check does real DNS; stub it here (it has its own tests).
+    url_check = url_check or AsyncMock(return_value=None)
     with patch(
         "app.routers.installations.validate_license", new=AsyncMock(return_value=lic)
     ), patch(
         "app.routers.installations.get_installation_account_id", new=lookup
+    ), patch(
+        "app.routers.installations.check_relay_url", new=url_check
     ):
-        return await client.post("/installations/register", json=BODY, headers=_auth())
+        return await client.post("/installations/register", json=body, headers=_auth())
 
 
 class TestRegisterOwnership:
@@ -93,6 +97,31 @@ class TestRegisterOwnership:
 
         assert resp.status_code == 502
         fresh_db.add.assert_not_called()
+
+
+class TestRegisterRelayUrl:
+    @pytest.mark.asyncio
+    async def test_unsafe_relay_url_is_rejected_before_github_lookup(self, client, fresh_db):
+        from app.utils.url_safety import UnsafeURLError
+
+        lookup = AsyncMock(return_value=OWNER_ACCOUNT_ID)
+        url_check = AsyncMock(side_effect=UnsafeURLError("relay_url must use https"))
+        resp = await _register(client, _license(), lookup, url_check=url_check)
+
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == "relay_url must use https"
+        lookup.assert_not_awaited()
+        fresh_db.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_relay_url_is_checked(self, client, fresh_db):
+        url_check = AsyncMock(return_value=None)
+        resp = await _register(
+            client, _license(), AsyncMock(return_value=OWNER_ACCOUNT_ID), url_check=url_check
+        )
+
+        assert resp.status_code == 201
+        url_check.assert_awaited_once_with(BODY["relay_url"])
 
 
 class TestGetInstallationAccountId:

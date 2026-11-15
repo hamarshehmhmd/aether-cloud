@@ -27,6 +27,7 @@ make dev       # start on :8001
 4. Customer sets `AETHER_LICENSE_KEY={license_key}` in their `bangalore/.env`
 5. Customer calls `POST /installations/register` with `installation_id` + `relay_url`
    (rejected with 403 unless GitHub reports the installation belongs to the license's `github_account_id`)
+   `relay_url` must be a public `https` endpoint; private, loopback, link-local and other reserved addresses are rejected (422) at registration and again before every relay
 6. Set returned `relay_secret` as `AETHER_RELAY_SECRET` in `bangalore/.env`
 7. On GitHub App settings → set Webhook URL to `https://api.tryaether.io/webhooks/github`
 8. Done — events flow: GitHub → aether-cloud → self-hosted instance
