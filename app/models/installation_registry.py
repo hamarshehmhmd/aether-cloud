@@ -23,7 +23,8 @@ class InstallationRegistry(Base, UUIDMixin, TimestampMixin):
     # Where to forward GitHub webhook events for this installation
     relay_url: Mapped[str] = mapped_column(String(512), nullable=False)
 
-    # Shared secret sent as X-Aether-Relay-Secret when forwarding events
+    # HMAC key for signing relayed events (see app/utils/relay_signing.py).
+    # Never sent over the wire. Stored in plaintext because signing needs it.
     # Generated once on registration; operator puts this in their AETHER_RELAY_SECRET env
     relay_secret: Mapped[str] = mapped_column(String(128), nullable=False)
 

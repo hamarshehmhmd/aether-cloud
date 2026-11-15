@@ -153,7 +153,12 @@ async def _forward(url: str):
     from app.services.relay_service import forward_event
 
     return await forward_event(
-        relay_url=url, relay_secret="s3cret", event="push", payload={"a": 1}, installation_id=1
+        relay_url=url,
+        relay_secret="s3cret",
+        event="push",
+        body=b'{"a": 1}',
+        delivery_id="d-1",
+        installation_id=1,
     )
 
 
@@ -169,7 +174,7 @@ class TestRelayService:
         assert req.url.host == PUBLIC_V4
         assert req.headers["Host"] == "relay.example.com"
         assert req.extensions["sni_hostname"] == "relay.example.com"
-        assert req.headers["X-Aether-Relay-Secret"] == "s3cret"
+        assert "X-Aether-Signature-256" in req.headers
 
     @pytest.mark.asyncio
     async def test_hostname_now_resolving_internal_is_blocked_and_never_sent(self):

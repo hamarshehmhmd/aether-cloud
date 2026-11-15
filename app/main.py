@@ -67,7 +67,7 @@ def create_app() -> FastAPI:
         allow_origins=["*"],
         allow_methods=["GET", "POST", "DELETE"],
         allow_headers=["Authorization", "Content-Type", "X-GitHub-Event",
-                       "X-Hub-Signature-256", "X-Aether-Relay-Secret"],
+                       "X-Hub-Signature-256"],
     )
     app.add_middleware(LoggingMiddleware)
 

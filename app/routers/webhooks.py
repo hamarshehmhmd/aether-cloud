@@ -1,5 +1,7 @@
 """GitHub webhook receiver + relay dispatcher."""
 
+import uuid
+
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request, status
 from sqlalchemy import select
@@ -21,6 +23,7 @@ async def github_webhook(
     background_tasks: BackgroundTasks,
     x_hub_signature_256: str = Header(...),
     x_github_event: str = Header(...),
+    x_github_delivery: str | None = Header(default=None),
 ):
     """Receive all GitHub App webhook events.
 
@@ -44,11 +47,17 @@ async def github_webhook(
         installation_id = payload["installation"].get("id")
 
     if installation_id:
+        # GitHub's delivery GUID identifies this event across retries; the receiver
+        # uses it to reject replays. Fall back to a fresh ID if absent or malformed.
+        delivery_id = x_github_delivery
+        if not delivery_id or ":" in delivery_id or len(delivery_id) > 128:
+            delivery_id = str(uuid.uuid4())
         background_tasks.add_task(
             _relay_to_self_hosted,
             installation_id=installation_id,
             event=x_github_event,
-            payload=payload,
+            body=body,  # raw bytes exactly as GitHub sent them
+            delivery_id=delivery_id,
         )
     else:
         log.info("webhook_no_installation_id", event=x_github_event)
@@ -56,7 +65,9 @@ async def github_webhook(
     return {"status": "accepted", "event": x_github_event}
 
 
-async def _relay_to_self_hosted(installation_id: int, event: str, payload: dict) -> None:
+async def _relay_to_self_hosted(
+    installation_id: int, event: str, body: bytes, delivery_id: str
+) -> None:
     """Background task: look up relay config and forward the event."""
     async with AsyncSessionLocal() as db:
         result = await db.execute(
@@ -76,6 +87,7 @@ async def _relay_to_self_hosted(installation_id: int, event: str, payload: dict)
         relay_url=registry.relay_url,
         relay_secret=registry.relay_secret,
         event=event,
-        payload=payload,
+        body=body,
+        delivery_id=delivery_id,
         installation_id=installation_id,
     )

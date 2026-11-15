@@ -5,6 +5,7 @@ import asyncio
 import httpx
 import structlog
 
+from app.utils.relay_signing import signature_headers
 from app.utils.url_safety import UnsafeURLError, resolve_relay_target
 
 log = structlog.get_logger(__name__)
@@ -17,16 +18,20 @@ async def forward_event(
     relay_url: str,
     relay_secret: str,
     event: str,
-    payload: dict,
+    body: bytes,
+    delivery_id: str,
     installation_id: int,
 ) -> bool:
     """Forward a GitHub webhook event to a self-hosted instance.
 
     Sends POST {relay_url} with:
       X-GitHub-Event: {event}
-      X-Aether-Relay-Secret: {relay_secret}
+      X-Aether-Timestamp / X-Aether-Delivery / X-Aether-Signature-256
+        (HMAC over timestamp, delivery ID and body; see app/utils/relay_signing.py)
       Content-Type: application/json
-      body: original payload
+      body: GitHub's original raw bytes, unmodified
+
+    The relay secret itself is never sent.
 
     Retries up to 2 times on network/5xx errors.
     Returns True if delivered, False if all attempts failed.
@@ -47,7 +52,6 @@ async def forward_event(
     headers = {
         "Host": target.host_header,
         "X-GitHub-Event": event,
-        "X-Aether-Relay-Secret": relay_secret,
         "Content-Type": "application/json",
         "User-Agent": "Aether-Relay/1.0",
     }
@@ -62,10 +66,11 @@ async def forward_event(
             async with httpx.AsyncClient(
                 timeout=_RELAY_TIMEOUT, follow_redirects=False
             ) as client:
+                # Re-sign each attempt: fresh timestamp, same delivery ID (receiver dedupes).
                 resp = await client.post(
                     target.url,
-                    json=payload,
-                    headers=headers,
+                    content=body,
+                    headers={**headers, **signature_headers(relay_secret, delivery_id, body)},
                     # TLS SNI + certificate check against the real hostname, not the IP.
                     extensions={"sni_hostname": target.sni_hostname},
                 )
