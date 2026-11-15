@@ -51,4 +51,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD python -c "import httpx; httpx.get('http://localhost:8001/health').raise_for_status()"
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2"]
+# Apply migrations before serving. Runs once per container start, before the
+# workers fork. exec makes uvicorn PID 1 so it receives SIGTERM directly.
+# Note: with several replicas starting at once, run migrations as a separate
+# one-off job instead (alembic takes no lock).
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8001 --workers 2"]

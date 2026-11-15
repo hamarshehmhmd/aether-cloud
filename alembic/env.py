@@ -16,9 +16,23 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def _database_url() -> str:
+    """Same source as the app: DATABASE_URL from the environment, else from .env.
+
+    Only database_url is read, so migrations don't require the GitHub/admin settings.
+    Falls back to alembic.ini only if neither is set.
+    """
+    from pydantic_settings import BaseSettings, SettingsConfigDict
+
+    class _DbSettings(BaseSettings):
+        model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+        database_url: str | None = None
+
+    return _DbSettings().database_url or config.get_main_option("sqlalchemy.url")
+
+
 def run_migrations_offline() -> None:
-    import os
-    url = os.environ.get("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+    url = _database_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -42,11 +56,8 @@ def do_run_migrations(connection: Connection) -> None:
 
 
 async def run_async_migrations() -> None:
-    import os
     configuration = config.get_section(config.config_ini_section, {})
-    # Prefer DATABASE_URL env var over alembic.ini (allows `alembic upgrade head` in CI)
-    db_url = os.environ.get("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
-    configuration["sqlalchemy.url"] = db_url
+    configuration["sqlalchemy.url"] = _database_url()
     connectable = async_engine_from_config(
         configuration,
         prefix="sqlalchemy.",

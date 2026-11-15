@@ -13,6 +13,10 @@ services:
     ports:
       - "8001:8001"
     env_file: .env
+    environment:
+      # Inside compose, Redis is reachable as "redis" and requires the password.
+      # Overrides any REDIS_URL in .env (which is for running outside compose).
+      REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
     depends_on:
       redis:
         condition: service_healthy
@@ -25,11 +29,15 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:-aether-redis}
+    # No default password: compose refuses to start without REDIS_PASSWORD.
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}  # lets the healthcheck authenticate
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # Without auth, PING gets NOAUTH; require an actual PONG.
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5

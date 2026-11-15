@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # --- Redis ---
     redis_url: str = "redis://localhost:6379/0"
-    redis_password: str = ""   # injected into REDIS_URL by docker-compose; tracked here for completeness
+    redis_password: str = ""   # docker-compose builds REDIS_URL from this; the app itself only reads redis_url
 
     # --- GitHub App (official Aether app — private key lives here only) ---
     github_app_id: str

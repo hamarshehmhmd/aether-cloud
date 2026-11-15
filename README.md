@@ -56,6 +56,8 @@ Reference implementation: `verify_signature()` in `app/utils/relay_signing.py`.
 
 See `.env.example`. Required at startup: `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `ADMIN_API_KEY` (min 32 chars).
 
+`docker compose` additionally requires `REDIS_PASSWORD` (Redis won't start without it) and builds `REDIS_URL` itself. The container runs `alembic upgrade head` before starting the server; Redis must be 7.0+.
+
 ## Admin Endpoints
 
 All `/admin/*` routes require `Authorization: Bearer {ADMIN_API_KEY}`.
