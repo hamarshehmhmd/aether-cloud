@@ -1,5 +1,6 @@
 """GitHub installation token proxy endpoint."""
 
+import httpx
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import select
@@ -78,6 +79,37 @@ async def get_installation_token(
         )
 
     # Mint / return cached token
-    token_data = await get_cached_token(installation_id, redis)
+    try:
+        token_data = await get_cached_token(installation_id, redis)
+    except httpx.HTTPStatusError as exc:
+        github_status = exc.response.status_code
+        log.error(
+            "github_token_mint_rejected",
+            installation_id=installation_id,
+            license_id=str(license_.id),
+            github_status=github_status,
+        )
+        if github_status == status.HTTP_404_NOT_FOUND:
+            # The App was uninstalled on GitHub; our registry row is stale.
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Installation {installation_id} no longer exists on GitHub.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="GitHub refused to issue a token for this installation.",
+        )
+    except httpx.HTTPError as exc:
+        # Timeouts, connection failures: GitHub unreachable, safe to retry.
+        log.error(
+            "github_token_mint_failed",
+            installation_id=installation_id,
+            license_id=str(license_.id),
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach GitHub to issue a token. Try again later.",
+        )
     log.info("token_issued", installation_id=installation_id, license_id=str(license_.id))
     return token_data

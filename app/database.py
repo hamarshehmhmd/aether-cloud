@@ -15,6 +15,9 @@ async_engine = create_async_engine(
     pool_size=_settings.db_pool_size,
     max_overflow=_settings.db_max_overflow,
     echo=False,
+    # Keep bound parameters (relay secrets, key hashes) out of error messages:
+    # the global exception handler logs str(exc).
+    hide_parameters=True,
 )
 
 AsyncSessionLocal = async_sessionmaker(

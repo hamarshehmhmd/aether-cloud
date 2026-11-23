@@ -60,7 +60,8 @@ async def github_webhook(
             delivery_id=delivery_id,
         )
     else:
-        log.info("webhook_no_installation_id", event=x_github_event)
+        # Not `event=`: that is structlog's own first parameter and raises TypeError.
+        log.info("webhook_no_installation_id", github_event=x_github_event)
 
     return {"status": "accepted", "event": x_github_event}
 
