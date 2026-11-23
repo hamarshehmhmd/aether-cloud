@@ -37,4 +37,4 @@ def verify_key(provided: str, stored_hash: str) -> bool:
 
 def verify_admin_key(provided: str, expected: str) -> bool:
     """Timing-safe comparison for admin API key."""
-    return hmac.compare_digest(provided, expected)
+    return hmac.compare_digest(provided.encode(), expected.encode())

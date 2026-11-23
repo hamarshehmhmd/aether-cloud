@@ -4,7 +4,7 @@ import hmac
 from typing import Any
 
 import structlog
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -27,12 +27,15 @@ async def verify_admin_key(
 ) -> None:
     """FastAPI dependency that rejects requests with wrong admin API key.
 
-    Uses hmac.compare_digest for timing-safe comparison.
-    Returns same 401 for wrong key and missing key to avoid leaking which.
+    Uses hmac.compare_digest for timing-safe comparison, on bytes: comparing
+    str raises TypeError for non-ASCII input, which would surface as a 500.
+    A wrong key or wrong scheme gets 401; a missing header gets FastAPI's 422.
     """
     settings = get_settings()
     scheme, _, key = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not hmac.compare_digest(key, settings.admin_api_key):
+    if scheme.lower() != "bearer" or not hmac.compare_digest(
+        key.encode(), settings.admin_api_key.encode()
+    ):
         log.warning("admin_auth_failed")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

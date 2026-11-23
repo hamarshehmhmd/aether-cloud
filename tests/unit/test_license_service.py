@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.models.license import License, LicenseStatus
-from app.utils.security import generate_license_key, hash_key
+from app.utils.security import hash_key
 
 
 def _active_license(email="test@example.com", expires_at=None):

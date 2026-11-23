@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.dependencies import get_db, get_redis
 from app.models.installation_registry import InstallationRegistry
+from app.schemas.license import MAX_BIGINT
 from app.services.license_service import validate_license
 from app.services.token_service import check_rate_limit, get_cached_token
 from app.utils.security import hash_key
@@ -19,7 +20,9 @@ router = APIRouter(prefix="/github", tags=["token-proxy"])
 
 @router.get("/token")
 async def get_installation_token(
-    installation_id: int = Query(..., description="GitHub App installation ID"),
+    installation_id: int = Query(
+        ..., gt=0, le=MAX_BIGINT, description="GitHub App installation ID"
+    ),
     authorization: str = Header(..., description="Bearer {license_key}"),
     db: AsyncSession = Depends(get_db),
     redis=Depends(get_redis),

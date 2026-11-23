@@ -5,14 +5,16 @@ once on creation and never stored.
 """
 
 import enum
-import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import BigInteger, DateTime, Enum, String
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
+
+if TYPE_CHECKING:
+    from app.models.installation_registry import InstallationRegistry
 
 
 class LicenseStatus(str, enum.Enum):
@@ -37,7 +39,8 @@ class License(Base, UUIDMixin, TimestampMixin):
     # GitHub account (org or user) this license may register installations for.
     # Numeric ID, not login: logins can be renamed and then claimed by someone else.
     # Nullable only for licenses created before this column existed; those cannot
-    # register installations until an admin binds them to an account.
+    # register installations. There is no endpoint to bind one afterwards: issue
+    # a new license for the account instead.
     github_account_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     # Relationships

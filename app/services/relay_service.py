@@ -33,8 +33,8 @@ async def forward_event(
 
     The relay secret itself is never sent.
 
-    Retries up to 2 times on network/5xx errors.
-    Returns True if delivered, False if all attempts failed.
+    Retries up to 2 times on network/5xx errors. A 3xx/4xx answer is not retried.
+    Returns True only if the receiver answered 2xx.
     """
     # SSRF guard: resolve once, refuse non-public addresses, and pin every attempt
     # to the vetted IP so DNS cannot be switched to an internal address mid-flight.
@@ -74,7 +74,7 @@ async def forward_event(
                     # TLS SNI + certificate check against the real hostname, not the IP.
                     extensions={"sni_hostname": target.sni_hostname},
                 )
-                if resp.status_code < 500:
+                if resp.is_success:
                     log.info(
                         "relay_delivered",
                         installation_id=installation_id,
@@ -83,6 +83,17 @@ async def forward_event(
                         attempt=attempt_num + 1,
                     )
                     return True
+                if resp.status_code < 500:
+                    # 3xx/4xx: the receiver answered and refused (bad signature,
+                    # wrong path, redirect). Retrying the same request won't help.
+                    log.warning(
+                        "relay_rejected",
+                        installation_id=installation_id,
+                        relay_url=relay_url,
+                        status=resp.status_code,
+                        attempt=attempt_num + 1,
+                    )
+                    return False
                 log.warning(
                     "relay_server_error",
                     installation_id=installation_id,

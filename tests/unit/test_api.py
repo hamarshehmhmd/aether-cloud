@@ -45,7 +45,6 @@ class TestHealth:
 class TestAdminLicenses:
     @pytest.mark.asyncio
     async def test_create_license_returns_201_with_key(self, client, mock_db):
-        from app.services import license_service
 
         plain_key = generate_license_key()
         lic = _active_license(plain_key)

@@ -4,13 +4,15 @@ import httpx
 import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
 from app.github.app import get_installation_account_id
 from app.models.installation_registry import InstallationRegistry
+from app.models.license import License
 from app.schemas.installation import RegisterRequest, RegisterResponse
-from app.services.license_service import validate_license
+from app.services.license_service import license_is_usable, validate_license
 from app.utils.security import generate_relay_secret
 from app.utils.url_safety import UnsafeURLError, check_relay_url
 
@@ -30,6 +32,9 @@ async def register_installation(
 
     Idempotent: re-registering an existing installation updates relay_url and
     rotates the relay_secret. Operator must update AETHER_RELAY_SECRET after rotation.
+
+    An installation held by a revoked or expired license can be taken over by
+    another license for the same GitHub account (the replacement-license case).
 
     Returns relay_secret — set this as AETHER_RELAY_SECRET on the self-hosted instance.
     """
@@ -93,10 +98,23 @@ async def register_installation(
 
     if existing:
         if existing.license_id != license_.id:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Installation is already registered under a different license",
+            # GitHub has just confirmed this license's account owns the
+            # installation. Refuse only while the current holder is still usable;
+            # otherwise a revoked or expired license would block its replacement
+            # forever.
+            holder = await db.get(License, existing.license_id)
+            if holder is not None and license_is_usable(holder):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Installation is already registered under a different license",
+                )
+            log.info(
+                "installation_reassigned",
+                installation_id=body.installation_id,
+                from_license_id=str(existing.license_id),
+                to_license_id=str(license_.id),
             )
+            existing.license_id = license_.id
         existing.relay_url = relay_url
         existing.relay_secret = generate_relay_secret()
         registry = existing
@@ -111,7 +129,14 @@ async def register_installation(
         db.add(registry)
         log.info("installation_registered", installation_id=body.installation_id)
 
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        # Two first-time registrations raced; the other one inserted the row.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Installation was registered concurrently. Retry the request.",
+        )
     return RegisterResponse(
         id=registry.id,
         installation_id=registry.installation_id,

@@ -52,6 +52,19 @@ The receiver must:
 
 Reference implementation: `verify_signature()` in `app/utils/relay_signing.py`.
 
+Delivery rules:
+- Answer **2xx** to acknowledge. Only 2xx counts as delivered.
+- A 5xx answer or a network error is retried twice (after 1s and 3s).
+- A 3xx or 4xx answer is final: it is logged as rejected and not retried. Redirects are never followed.
+- Events stop being relayed once the license is revoked or expired.
+
+## Licenses and Installations
+
+- `expires_at` must be in the future and carry a UTC offset (`2027-01-01T00:00:00Z`); naive timestamps are rejected.
+- An installation belongs to one license. Re-registering under the same license updates `relay_url` and rotates `relay_secret`.
+- If that license is revoked or expired, a new license for the same GitHub account can register the installation and take it over. While the first license is still usable, a second one gets 409.
+- GitHub's webhook content type must be `application/json`.
+
 ## Environment Variables
 
 See `.env.example`. Required at startup: `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `ADMIN_API_KEY` (min 32 chars).

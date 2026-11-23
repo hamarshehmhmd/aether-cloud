@@ -1,5 +1,7 @@
 """Admin endpoints — protected by ADMIN_API_KEY. Internal use only."""
 
+import uuid
+
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,7 +49,7 @@ async def get_all_licenses(db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/licenses/{license_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def revoke(license_id: str, db: AsyncSession = Depends(get_db)):
+async def revoke(license_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """Revoke a license by ID. Requires: Authorization: Bearer {admin_api_key}"""
     try:
         await revoke_license(db, license_id)

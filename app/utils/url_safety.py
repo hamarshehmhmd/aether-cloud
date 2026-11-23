@@ -24,6 +24,13 @@ from urllib.parse import urlsplit, urlunsplit
 
 IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 
+# NAT64 prefixes (RFC 6052, RFC 8215) embed an IPv4 address. On a network with a
+# NAT64 gateway, 64:ff9b::a00:1 reaches 10.0.0.1, yet Python reports it as global.
+_NAT64_NETWORKS = (
+    ipaddress.ip_network("64:ff9b::/96"),
+    ipaddress.ip_network("64:ff9b:1::/48"),
+)
+
 
 class UnsafeURLError(ValueError):
     """The URL is not an acceptable relay target. Message is safe to show the caller."""
@@ -47,6 +54,8 @@ def _is_public(ip: IPAddress) -> bool:
     # ::ffff:10.0.0.1 is really 10.0.0.1. Judge the embedded IPv4 address.
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
         ip = ip.ipv4_mapped
+    if isinstance(ip, ipaddress.IPv6Address) and any(ip in net for net in _NAT64_NETWORKS):
+        return False
     # is_global excludes private, loopback, link-local, reserved, shared (CGNAT),
     # unspecified, and documentation ranges. Multicast can still count as
     # "global", so exclude it explicitly.

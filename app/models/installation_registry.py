@@ -1,12 +1,16 @@
 """InstallationRegistry — maps a GitHub installation to a license + relay endpoint."""
 
 import uuid
+from typing import TYPE_CHECKING
 
 from sqlalchemy import BigInteger, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
+
+if TYPE_CHECKING:
+    from app.models.license import License
 
 
 class InstallationRegistry(Base, UUIDMixin, TimestampMixin):

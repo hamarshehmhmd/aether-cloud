@@ -1,15 +1,17 @@
 """GitHub webhook receiver + relay dispatcher."""
 
+import json
 import uuid
 
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request, status
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import AsyncSessionLocal
 from app.models.installation_registry import InstallationRegistry
+from app.models.license import License
+from app.services.license_service import license_is_usable
 from app.services.relay_service import forward_event
 from app.utils.github_webhook import verify_signature
 
@@ -39,12 +41,21 @@ async def github_webhook(
             detail="Invalid webhook signature",
         )
 
-    payload = await request.json()
+    # The signature only proves GitHub sent these bytes, not what shape they have.
+    # A webhook configured as application/x-www-form-urlencoded lands here too.
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Body is not valid JSON. Set the webhook content type to application/json.",
+        )
 
-    # Extract installation ID from payload
-    installation_id: int | None = None
-    if "installation" in payload:
-        installation_id = payload["installation"].get("id")
+    # Extract installation ID from payload; tolerate a missing or null object.
+    installation = payload.get("installation") if isinstance(payload, dict) else None
+    installation_id = installation.get("id") if isinstance(installation, dict) else None
+    if not isinstance(installation_id, int) or isinstance(installation_id, bool):
+        installation_id = None
 
     if installation_id:
         # GitHub's delivery GUID identifies this event across retries; the receiver
@@ -72,16 +83,27 @@ async def _relay_to_self_hosted(
     """Background task: look up relay config and forward the event."""
     async with AsyncSessionLocal() as db:
         result = await db.execute(
-            select(InstallationRegistry).where(
-                InstallationRegistry.installation_id == installation_id
-            )
+            select(InstallationRegistry, License)
+            .join(License, License.id == InstallationRegistry.license_id)
+            .where(InstallationRegistry.installation_id == installation_id)
         )
-        registry = result.scalar_one_or_none()
+        row = result.one_or_none()
 
-    if registry is None:
+    if row is None:
         # This installation is not self-hosted — it's a hosted SaaS installation.
         # The hosted processing path would go here in future.
         log.debug("no_relay_for_installation", installation_id=installation_id)
+        return
+
+    registry, license_ = row
+    if not license_is_usable(license_):
+        # Revoked or expired: the token proxy already refuses this license, so
+        # stop delivering its events as well.
+        log.warning(
+            "relay_skipped_inactive_license",
+            installation_id=installation_id,
+            license_id=str(license_.id),
+        )
         return
 
     await forward_event(

@@ -82,4 +82,5 @@ def verify_signature(
     if not signature.startswith(_PREFIX):
         return False
     expected = sign(secret, timestamp, delivery_id, body)
-    return hmac.compare_digest(expected, signature)
+    # Compare bytes: compare_digest on str raises TypeError for non-ASCII input.
+    return hmac.compare_digest(expected.encode(), signature.encode())

@@ -12,4 +12,5 @@ def verify_signature(payload: bytes, signature_header: str, secret: str) -> bool
         secret.encode(), payload, hashlib.sha256
     ).hexdigest()
     provided = signature_header[len("sha256="):]
-    return hmac.compare_digest(expected, provided)
+    # Compare bytes: compare_digest on str raises TypeError for non-ASCII input.
+    return hmac.compare_digest(expected.encode(), provided.encode())

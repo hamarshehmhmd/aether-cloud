@@ -3,18 +3,32 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from datetime import timezone
+
+from pydantic import AwareDatetime, BaseModel, EmailStr, Field, field_validator
 
 from app.models.license import LicenseStatus
+
+# Columns are Postgres BIGINT; anything larger fails at the driver, not validation.
+MAX_BIGINT = 2**63 - 1
 
 
 class LicenseCreateRequest(BaseModel):
     customer_email: EmailStr
     # Numeric GitHub account ID of the customer's org/user.
     # Look it up: curl https://api.github.com/orgs/{org}  (or /users/{user}) → "id"
-    github_account_id: int = Field(gt=0)
-    expires_at: datetime | None = None
-    notes: str | None = None
+    github_account_id: int = Field(gt=0, le=MAX_BIGINT)
+    # Must carry a UTC offset. A naive value would be stored as the server's
+    # local time, silently shifting the expiry.
+    expires_at: AwareDatetime | None = None
+    notes: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("expires_at")
+    @classmethod
+    def _expiry_in_future(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value <= datetime.now(timezone.utc):
+            raise ValueError("expires_at must be in the future")
+        return value
 
 
 class LicenseCreateResponse(BaseModel):

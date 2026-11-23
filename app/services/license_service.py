@@ -1,11 +1,14 @@
 """License CRUD and validation logic."""
 
+import uuid
+from datetime import datetime, timezone
+
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.license import License, LicenseStatus
-from app.utils.security import generate_license_key, hash_key, verify_key
+from app.utils.security import generate_license_key, hash_key
 
 log = structlog.get_logger(__name__)
 
@@ -45,6 +48,13 @@ async def get_license_by_key(db: AsyncSession, plain_key: str) -> License | None
     return result.scalar_one_or_none()
 
 
+def license_is_usable(license_: License) -> bool:
+    """True if the license is active and not past its expiry."""
+    if license_.status != LicenseStatus.active:
+        return False
+    return not (license_.expires_at and license_.expires_at < datetime.now(timezone.utc))
+
+
 async def validate_license(db: AsyncSession, plain_key: str) -> License:
     """Validate a license key. Raises ValueError with a safe message on failure.
 
@@ -53,8 +63,6 @@ async def validate_license(db: AsyncSession, plain_key: str) -> License:
     - Status is active
     - Not expired (if expires_at set)
     """
-    from datetime import datetime, timezone
-
     license_ = await get_license_by_key(db, plain_key)
     if license_ is None:
         log.warning("license_not_found")
@@ -71,14 +79,14 @@ async def validate_license(db: AsyncSession, plain_key: str) -> License:
     return license_
 
 
-async def revoke_license(db: AsyncSession, license_id: str) -> License:
+async def revoke_license(db: AsyncSession, license_id: uuid.UUID) -> License:
     """Revoke a license by ID."""
     result = await db.execute(select(License).where(License.id == license_id))
     license_ = result.scalar_one_or_none()
     if not license_:
         raise ValueError(f"License {license_id} not found")
     license_.status = LicenseStatus.revoked
-    log.info("license_revoked", license_id=license_id)
+    log.info("license_revoked", license_id=str(license_id))
     return license_
 
 
